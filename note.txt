@@ -1,0 +1,101 @@
+Real Time Collaboration Project
+Features:
+1. User to SignIn/SignUp via google account or email id password. 
+2. User to create a session 
+3. Share to URL invite to other users
+4. Multiple languages - C/c++
+5. USer should be collaboratively write the code  to run the code
+6. Cursor position of each possition
+(7. Save the code as a file in database)
+
+
+1. Authentication
+Google OAuth (mandatory for India)
+Email + password (basic)
+JWT session handling
+
+Do NOT skip:
+
+Email verification
+
+2. Session + Sharing (Core UX)
+Create session
+Unique shareable URL
+Join via link
+Roles:
+Owner
+Editor
+Viewer
+
+Do NOT skip:
+
+Session persistence (users expect it)
+Basic session expiry (cleanup)
+
+3. Real-Time Collaboration (Core Product)
+Multi-user editing
+CRDT (use Yjs — do NOT build from scratch)
+Cursor tracking (name + color)
+Presence (who is online)
+
+Do NOT skip:
+
+Conflict-free editing
+WebSocket stability
+
+
+4. Code Editor (User Experience Critical)
+Monaco Editor (industry standard)
+Syntax highlighting
+Auto-indent
+Line numbers
+
+Languages:
+
+C++
+Python (IMPORTANT for India market)
+
+
+5. Code Execution (Core Value)
+Run code
+Input support
+Output console
+Error handling
+
+Do NOT skip:
+
+Sandboxing (Judge0 or Piston)
+Timeout + memory limits
+
+Without this → unsafe product
+
+6. Auto Save + Persistence
+Auto-save (every few seconds) --[not IMPORTANT]
+Manual save
+
+7. Guest Mode
+Very important for:
+Interview links
+Students sharing quickly
+
+
+Your Ideal MVP (Production-Ready)
+
+Build this EXACT combination:
+
+Core
+Google login + Email login
+Create/join session via URL
+Real-time editing (Yjs)
+Cursor tracking + presence
+Monaco editor
+Languages: C++, Python
+Code execution (Judge0/Piston)
+Input/output console
+Auto-save
+Session persistence
+Add Immediately (Not optional for real usage)
+Guest mode
+Session dashboard
+Basic roles (Owner/Editor/Viewer)
+Timeout + sandbox limits
