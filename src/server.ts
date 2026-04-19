@@ -8,7 +8,7 @@ import * as authController from "./controllers/authController";
 import { protect } from "./middleware/auth";
 import { requireVerified } from "./middleware/requireVerified";
 import errorHandler from "./middleware/errorHandler";
-
+// import mongoose from "mongoose";
 const app = express();
 const httpServer = http.createServer(app);
 const io = new Server(httpServer, {
@@ -41,3 +41,4 @@ const PORT = process.env.PORT || 5000;
 connectDB().then(() => {
   httpServer.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 });
+
