@@ -6,7 +6,7 @@ import { AuthRequest, IUser } from "../types";
 
 export const register = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const result = await authService.register(req.body);
+    const result = await authService.register(req.body); 
     res.status(201).json(result);
   } catch (err) { next(err); }
 };
@@ -55,7 +55,7 @@ export const me = (req: AuthRequest, res: Response): void => {
 
 export const googleAuth = passport.authenticate("google", {
   scope: ["profile", "email"],
-  session: false,
+  session: false, 
 });
 
 export const googleCallback = (req: Request, res: Response, next: NextFunction): void => {
