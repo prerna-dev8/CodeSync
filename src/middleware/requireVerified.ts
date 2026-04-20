@@ -8,3 +8,4 @@ export const requireVerified = (req: AuthRequest, res: Response, next: NextFunct
   }
   next();
 };
+

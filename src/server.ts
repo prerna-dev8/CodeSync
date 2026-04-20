@@ -9,7 +9,7 @@ import { protect } from "./middleware/auth";
 import { requireVerified } from "./middleware/requireVerified";
 import errorHandler from "./middleware/errorHandler";
 // import mongoose from "mongoose";
-const app = express();
+export const app = express();
 const httpServer = http.createServer(app);
 const io = new Server(httpServer, {
   cors: { origin: process.env.CLIENT_URL || "*" },
@@ -29,11 +29,37 @@ app.post("/api/auth/reset-password", authController.resetPassword);
 app.get("/api/auth/google", authController.googleAuth);
 app.get("/api/auth/google/callback", authController.googleCallback);
 
+// Session routes
+app.use("/api/sessions", require('./routes/session'));
+app.use("/api/execution", require('./routes/execution'));
+
+
 app.use(errorHandler);
 
+io.use(require('./middleware/socketAuth'));
 io.on("connection", (socket) => {
-  console.log("Socket connected:", socket.id);
-  socket.on("disconnect", () => console.log("Socket disconnected:", socket.id));
+  console.log("Socket connected:", socket.id, "User:", socket.data.userId);
+  
+  socket.on("join-session", async (sessionId) => {
+    const success = await require('./services/sessionService').joinSession(sessionId, socket.data.userId);
+    if (success) {
+      socket.join(`session-${sessionId}`);
+      socket.to(`session-${sessionId}`).emit('user-joined', socket.data.userId);
+      console.log('User joined session', sessionId);
+    }
+  });
+
+  socket.on("code-change", (data) => {
+    socket.to(`session-${data.sessionId}`).emit('code-update', data);
+  });
+
+  socket.on("cursor-move", (data) => {
+    socket.to(`session-${data.sessionId}`).emit('cursor-update', data);
+  });
+
+  socket.on("disconnect", () => {
+    console.log("Socket disconnected:", socket.id);
+  });
 });
 
 const PORT = process.env.PORT || 5000;

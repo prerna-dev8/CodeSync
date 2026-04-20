@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from "express";
 import passport from "../config/passport";
 import * as authService from "../services/authService";
-import { signToken } from "../utils/jwt";
+// No signToken import needed
+
 import { AuthRequest, IUser } from "../types";
 
 export const register = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -63,7 +64,10 @@ export const googleCallback = (req: Request, res: Response, next: NextFunction):
     if (err || !user) {
       return res.redirect(`${process.env.CLIENT_URL}/login?error=oauth_failed`);
     }
-    const token = authService.issueTokenForOAuthUser(user);
-    res.redirect(`${process.env.CLIENT_URL}/auth/callback?token=${token}`);
+    authService.issueTokensForOAuthUser(user).then(({ accessToken }) => {
+      res.redirect(`${process.env.CLIENT_URL}/auth/callback?token=${accessToken}`);
+    }).catch(err => {
+      res.redirect(`${process.env.CLIENT_URL}/login?error=oauth_failed`);
+    });
   })(req, res, next);
 };

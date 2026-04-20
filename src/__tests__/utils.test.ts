@@ -1,25 +1,36 @@
-import { describe, expect, test, beforeAll, afterAll } from '@jest/globals';
-import { signToken, verifyToken } from '../utils/jwt';
+import { describe, expect, test } from '@jest/globals';
+import { signAccessToken, verifyAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/jwt';
 import { generateToken, hashToken } from '../utils/crypto';
-import jwt from 'jsonwebtoken';
 
 describe('JWT Utils', () => {
   const payload = { id: 'testuser123' };
-  let token: string;
+  let accessToken: string;
+  let refreshToken: string;
 
-  test('signToken creates valid JWT', () => {
-    token = signToken(payload);
-    expect(token).toBeDefined();
-    expect(token).toMatch(/^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/);
+  test('signAccessToken creates valid JWT', () => {
+    accessToken = signAccessToken(payload);
+    expect(accessToken).toBeDefined();
+    expect(accessToken).toMatch(/^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/);
   });
 
-  test('verifyToken decodes correctly', () => {
-    const decoded = verifyToken(token);
+  test('verifyAccessToken decodes correctly', () => {
+    const decoded = verifyAccessToken(accessToken);
     expect(decoded.id).toBe(payload.id);
   });
 
-  test('verifyToken throws on invalid token', () => {
-    expect(() => verifyToken('invalid')).toThrow();
+  test('verifyAccessToken throws on invalid token', () => {
+    expect(() => verifyAccessToken('invalid')).toThrow();
+  });
+
+  test('signRefreshToken creates valid refresh token', () => {
+    refreshToken = signRefreshToken(payload);
+    expect(refreshToken).toBeDefined();
+    expect(refreshToken).toMatch(/^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/);
+  });
+
+  test('verifyRefreshToken decodes correctly', () => {
+    const decoded = verifyRefreshToken(refreshToken);
+    expect(decoded.id).toBe(payload.id);
   });
 });
 

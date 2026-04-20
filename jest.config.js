@@ -18,11 +18,7 @@ export default {
     '^.+\\.ts$': ['ts-jest', { useESM: true }],
   },
   extensionsToTreatAsEsm: ['.ts'],
-  globals: {
-    'ts-jest': {
-      tsconfig: 'tsconfig.json',
-    },
-  },
+// globals removed
   moduleFileExtensions: ['ts', 'js'],
 };
 

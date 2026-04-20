@@ -55,7 +55,8 @@ describe('Auth Service', () => {
 
       const result = await authService.login({ email: userData.email, password: userData.password });
 
-      expect(result.token).toBeDefined();
+      expect(result.accessToken).toBeDefined();
+      expect(result.refreshToken).toBeDefined();
       expect(result.user.email).toBe(userData.email);
       expect(result.user.isVerified).toBe(true);
     });

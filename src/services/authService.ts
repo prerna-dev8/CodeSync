@@ -1,7 +1,9 @@
 import User from "../models/User";
-import { signToken } from "../utils/jwt";
+import RefreshToken from "../models/RefreshToken";
+import * as crypto from "crypto";
 import { generateToken, hashToken } from "../utils/crypto";
 import { sendVerificationEmail, sendPasswordResetEmail } from "./emailService";
+import { signAccessToken } from "../utils/jwt";
 import { IUser } from "../types";
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -77,7 +79,7 @@ export const resendVerification = async (email: string): Promise<{ message: stri
 export const login = async (body: {
   email: string;
   password: string;
-}): Promise<{ token: string; user: Partial<IUser> }> => {
+}): Promise<{ accessToken: string; refreshToken: string; user: Partial<IUser> }> => {
   const { email, password } = body;
 
   const user = await User.findOne({ email });
@@ -85,14 +87,36 @@ export const login = async (body: {
   if (!(await user.comparePassword(password))) throw appError("Invalid credentials", 401);
   if (!user.isVerified) throw appError("Please verify your email before logging in", 403);
 
-  const token = signToken({ id: String(user._id) });
-  return { token, user: sanitize(user) };
+  const accessToken = signAccessToken({ id: String(user._id) });
+  const refreshTokenStr = crypto.randomBytes(40).toString('hex');
+  const hashedRefresh = crypto.createHash('sha256').update(refreshTokenStr).digest('hex');
+  const refreshExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  
+  await new RefreshToken({
+    userId: user._id,
+    token: hashedRefresh,
+    expiresAt: refreshExpiry
+  }).save();
+  
+  return { accessToken, refreshToken: refreshTokenStr, user: sanitize(user) };
 };
 
 // ── Google OAuth — issue JWT after passport callback ─────────────────────────
 
-export const issueTokenForOAuthUser = (user: IUser): string =>
-  signToken({ id: String(user._id) });
+export const issueTokensForOAuthUser = async (user: IUser): Promise<{ accessToken: string; refreshToken: string }> => {
+  const accessToken = signAccessToken({ id: String(user._id) });
+  const refreshTokenStr = crypto.randomBytes(40).toString('hex');
+  const hashedRefresh = crypto.createHash('sha256').update(refreshTokenStr).digest('hex');
+  const refreshExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  
+  await new RefreshToken({
+    userId: user._id,
+    token: hashedRefresh,
+    expiresAt: refreshExpiry
+  }).save();
+  
+  return { accessToken, refreshToken: refreshTokenStr };
+};
 
 // ── Forgot Password ───────────────────────────────────────────────────────────
 
@@ -145,5 +169,6 @@ const sanitize = (user: IUser): Partial<IUser> => ({
   isVerified: user.isVerified,
 });
 
-const appError = (message: string, statusCode: number): Error =>
+export const appError = (message: string, statusCode: number): Error =>
   Object.assign(new Error(message), { statusCode });
+
