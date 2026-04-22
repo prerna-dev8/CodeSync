@@ -1,6 +1,5 @@
 import { Request } from "express";
 import { Document } from "mongoose";
-// import * as Y from 'yjs';
 
 export interface IUser extends Document {
   username: string;
@@ -16,16 +15,23 @@ export interface IUser extends Document {
   comparePassword(plain: string): Promise<boolean>;
 }
 
-export interface IRefreshToken extends Document {
+export interface IRefreshTokenDoc extends Document {
   userId: string;
   token: string;
   expiresAt: Date;
   createdAt: Date;
   revoked: boolean;
 }
+export type IRefreshToken = IRefreshTokenDoc;
 
 export interface AuthRequest extends Request {
-  user?: IUser;
+  user?: {
+    _id: any;
+    username: string;
+    email: string;
+    avatar?: string;
+    isVerified: boolean;
+  };
 }
 
 export interface JwtPayload {
@@ -74,7 +80,7 @@ export interface ISession {
   idleTimeout?: Date;
   maxMembers?: number;
   docState?: Buffer;
-cursors?: Record<string, ISessionCursor> | Map<string, ISessionCursor>;
+  cursors?: Record<string, ISessionCursor> | Map<string, ISessionCursor>;
   presence?: Record<string, ISessionPresence> | Map<string, ISessionPresence>;
 }
 
@@ -83,6 +89,7 @@ export interface SocketData {
   username: string;
   role: SessionRole;
   sessionId: string;
+  color?: string;
 }
 
 // ========== NEW EXECUTION TYPES ==========
@@ -103,3 +110,12 @@ export interface IExecution extends Document {
   state: ExecutionState;
   createdAt: Date;
 }
+
+export interface SandboxResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  executionTimeMs: number;
+  containerId: string;
+}
+

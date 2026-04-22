@@ -48,9 +48,10 @@ export const resetPassword = async (req: Request, res: Response, next: NextFunct
 };
 
 export const me = (req: AuthRequest, res: Response): void => {
-  const u = req.user!;
+  const u = req.user! as any;
   res.json({ id: u._id, username: u.username, email: u.email, avatar: u.avatar, isVerified: u.isVerified });
 };
+
 
 // ── Google OAuth ──────────────────────────────────────────────────────────────
 

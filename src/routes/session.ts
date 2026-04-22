@@ -20,5 +20,5 @@ router.post('/:id/invite/send', sessionController.sendInviteEmail as any);
 router.post('/:id/role', sessionController.changeRole as any);
 router.post('/:id/archive', sessionController.archiveSession as any);
 
-export default router;
+export { router };
 

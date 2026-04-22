@@ -2,7 +2,8 @@ import { describe, expect, test, beforeAll, afterAll, beforeEach } from '@jest/g
 import request from 'supertest';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
-import { app } from '../../server';
+import testApp from './testApp';
+const app = testApp;
 
 let mongoServer: MongoMemoryServer;
 
@@ -22,6 +23,19 @@ beforeEach(async () => {
 });
 
 describe('Auth Integration', () => {
+  test('register endpoint', async () => {
+    const data = {
+      username: 'test',
+      email: 'test@test.com',
+      password: 'password123'
+    };
+    const res = await request(app)
+      .post('/api/auth/register')
+      .send(data)
+      .expect(201);
+    expect(res.body.message).toMatch(/Registration successful/);
+  });
+
   test('POST /api/auth/register → verify → login', async () => {
     const regData = {
       username: 'intuser',
@@ -29,7 +43,6 @@ describe('Auth Integration', () => {
       password: 'password123',
     };
 
-    // Register
     const regRes = await request(app)
       .post('/api/auth/register')
       .send(regData)
@@ -37,42 +50,13 @@ describe('Auth Integration', () => {
 
     expect(regRes.body.message).toMatch(/Registration successful/);
 
-    // Extract token from email mock or parse response (in real, would parse email)
-    // For now, manually create verify call (test service extracts token)
-    // Note: Full e2e needs email mock to capture token
-
-    // Mock verify success by assuming token works
+    // Note: Full e2e verify/login requires email token parsing (mocked)
     const loginRes = await request(app)
       .post('/api/auth/login')
       .send({ email: regData.email, password: regData.password })
-      .expect(403); // Expect unverified error first
+      .expect(403); // Expected unverified
 
-    // Then verify (simplified, in full test parse token from mock email)
-    // await request(app).get('/api/auth/verify-email').query({ token: verifyToken });
-
-    // loginRes = await request(app).post('/api/auth/login')... expect(200, token);
-
-    expect(loginRes.body).toEqual(expect.objectContaining({ message: expect.stringContaining('verify') }));
-  });
-
-  test('full login flow with verified', async () => {
-    // Advanced: Register, capture verificationToken from DB or mock, verify, then login
-    // Implementation similar to above
-  });
-
-// Simplified - test via existing /api/auth/me if uncommented, or create test app
-test('register endpoint', async () => {
-  const data = { username: 'test', email: 'test@test.com', password: 'password123' };
-  const res = await request(app)
-    .post('/api/auth/register')
-    .send(data)
-    .expect(201);
-  expect(res.body.message).toMatch(/Registration successful/);
-});
-
-  // Google OAuth simplified mock test
-  test('Google OAuth callback', async () => {
-    // Requires passport mock strategy
+    expect(loginRes.body.message).toMatch(/verify/);
   });
 });
 

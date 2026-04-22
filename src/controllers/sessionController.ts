@@ -5,7 +5,8 @@ import { AuthRequest } from '../types';
 export const createSession = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { title } = req.body;
-    const session = await sessionService.createSession(title, req.user!._id.toString());
+    const session = await sessionService.createSession(title, (req.user! as any)._id.toString());
+
     res.status(201).json(session);
   } catch (err) {
     next(err);

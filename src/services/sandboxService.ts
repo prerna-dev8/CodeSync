@@ -1,7 +1,7 @@
 import Docker from 'dockerode';
-import { Language, ExecutionState } from '../types';
-import stream from 'stream/promises';
-import { promisify } from 'util';
+import { Language } from '../types';
+export type { SandboxResult } from '../types/sandbox';
+
 
 const docker = new Docker();
 
@@ -12,98 +12,89 @@ const langImages: Record<Language, string> = {
   javascript: 'node:20-slim'
 };
 
-export async function executeInSandbox(language: Language, code: string, stdin: string = ''): Promise<{
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-  executionTimeMs: number;
-}> {
+// SandboxResult interface moved to types/sandbox.ts
+
+import type { SandboxResult } from '../types/sandbox';
+
+export async function executeInSandbox(language: Language, code: string, stdin: string = ''): Promise<SandboxResult> {
+
   const startTime = Date.now();
-  
+  const safeCode = Buffer.from(code).toString('base64');
+  const fileExt = language === 'javascript' ? 'js' : language;
+  const fileName = `/tmp/code.${fileExt}`;
+
+  const cmd: string[] = ['sh', '-c', `echo ${safeCode} | base64 -d > ${fileName} && timeout 8s ${language === 'javascript' ? 'node' : language} ${fileName} && rm -f ${fileName}`];
+
   const container = await docker.createContainer({
     Image: langImages[language],
-    Cmd: getCmd(language, code),
-    AttachStdin: true,
-    AttachStdout: true,
-    AttachStderr: true,
     Tty: false,
+    OpenStdin: true,
     HostConfig: {
       NetworkMode: 'none',
-      Memory: 256 * 1024 * 1024, // 256MB
-      NanoCpus: 1000000000, // 1 CPU
-      PidsLimit: 256,
-      AutoRemove: true
+      Memory: 128 * 1024 * 1024,
+      NanoCpus: 500000000,
+      PidsLimit: 128,
+      AutoRemove: true,
+      Tmpfs: { '/tmp': 'rw,noexec,nosuid,size=32m' },
+      ReadonlyRootfs: true,
+      SecurityOpt: ['no-new-privileges:true']
     },
-    StopTimeout: 10
+    StopTimeout: 5
   });
+
+  let stdout = '';
+  let stderr = '';
 
   try {
     await container.start();
-    
-    // Stream stdin
-    const stdinStream = await container.attach({ stream: true, stdin: true, stdout: false, stderr: false });
-    stdinStream.write(stdin);
-    stdinStream.end();
 
-    // Get logs with timeout
     const exec = await container.exec({
-      Cmd: ['sh', '-c', 'timeout 10s ' + getCmd(language, code).join(' ')],
+      Cmd: cmd,
+      AttachStdin: true,
       AttachStdout: true,
       AttachStderr: true
     });
-    
-    const result = await exec.start({ Detach: false });
-    
+
+    const execStream = await exec.start({ Detach: false });
+    if (stdin) {
+      (execStream as any).write(stdin);
+      (execStream as any).end();
+    }
+
     const chunks: Buffer[] = [];
-    result.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-    
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Execution timeout')), 11000)
-    );
-    
-    const execResult = await Promise.race([
-      new Promise((resolve) => {
-        result.on('end', () => resolve(chunks));
-      }),
-      timeoutPromise
-    ]);
-    
-    const output = Buffer.concat(chunks).toString();
-    const { stdout, stderr } = parseOutput(output);
-    
-    const inspect = await container.inspect();
-    const exitCode = inspect.State.ExitCode || 0;
-    
+    execStream.on('data', (chunk: Buffer) => {
+      chunks.push(chunk);
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      execStream.on('end', resolve);
+      setTimeout(() => reject(new Error('Exec timeout')), 10000);
+    });
+
+    const inspect = await exec.inspect();
+    stdout = Buffer.concat(chunks).toString('utf8');
+    const exitCode = inspect.ExitCode || 0;
+
     return {
       stdout,
       stderr,
       exitCode,
-      executionTimeMs: Date.now() - startTime
+      executionTimeMs: Date.now() - startTime,
+      containerId: container.id!
+    };
+  } catch (error: any) {
+    stderr = error.message;
+    return {
+      stdout,
+      stderr,
+      exitCode: 1,
+      executionTimeMs: Date.now() - startTime,
+      containerId: container.id!
     };
   } finally {
     try {
       await container.kill();
-      await container.remove({ force: true });
-    } catch {}
+    } catch (e) {}
   }
-}
-
-function getCmd(language: Language, code: string): string[] {
-  const fileName = `/tmp/code.${language === 'javascript' ? 'js' : language}`;
-  return ['sh', '-c', `
-echo "${escapeCode(code)}" > ${fileName} &&
-timeout 10s ${language === 'javascript' ? 'node' : language} ${fileName} &&
-rm ${fileName}
-  `];
-}
-
-function escapeCode(code: string): string {
-  return code.replace(/"/g, '\\"').replace(/\n/g, '\\n');
-}
-
-function parseOutput(output: string): { stdout: string; stderr: string } {
-  // Simple parse - improve based on lang output format
-  const lines = output.split('\n');
-  return { stdout: lines.slice(0, -1).join('\n'), stderr: '' };
 }
 

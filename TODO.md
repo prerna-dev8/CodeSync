@@ -1,47 +1,30 @@
-# Secure Code Execution System Implementation Plan
+# Production-Grade Fixes for Sandbox & Session Services
 
-## Information Gathered
-- No existing execution/sandbox (0 matches)
-- Auth/sessions/Yjs ready for integration
-- Yjs deps present (y-mongodb-provider for doc snapshots)
-- Docker deps missing (dockerode needed)
-- Coverage: auth 92%, sessions/Yjs partial
+## Status: [x] Step 1 Complete (dockerode/@types/dockerode installed)
 
-## Plan (File Level)
-**1. Models & Types**
-- `src/models/Execution.ts` (executionId, sessionId, versionId, code/language/stdin/output/state)
-- `src/types/index.ts` (+ IExecution, ExecutionState enum)
+### Step 1: Install Dependencies ✓
+- [x] dockerode, @types/dockerode
+- [x] Ignore y-mongodb-provider (not needed)
 
-**2. Sandbox Engine**
-- `src/services/sandboxService.ts` (dockerode containers, lang images: gcc/python/node)
-- `src/docker/Dockerfile.sandbox` (multi-lang base, timeouts)
+### Step 2: Fix TypeScript Errors (Critical)
+- [ ] sandboxService.ts: dockerode types/stream Uint8Array, logic races
+- [ ] sessionService.ts: Mongoose ISessionDoc typing, populate fixes
+- [ ] executionService.ts: Type races, member populate
 
-**3. Execution Service**
-- `src/services/executionService.ts` (queue/validate/run/stop, snapshot capture)
+### Step 3: Core Production Fixes
+- [ ] sandboxService.ts: Secure single exec/base64/tmpfs/streams
+- [ ] executionService.ts: containerId/stop Docker integration
+- [ ] sessionService.ts: debounce Map, docCache eviction, transactions
 
-**4. Controllers & Routes**
-- `src/controllers/executionController.ts` (run/stop)
-- `src/routes/execution.ts` (protect + role check)
+### Step 4: Comprehensive Testing
+- [ ] Unit/integration tests (sandbox mock/DB)
+- [ ] jest --coverage >90%
+- [ ] tsc --noEmit zero errors
 
-**5. Socket Integration**
-- `src/sockets/executionEvents.ts` (broadcast started/completed/failed/stopped)
+### Step 5: Validate & Complete
+- [ ] Runtime test Docker/DB
+- [ ] Production-ready
 
-**6. Server Integration**
-- `src/server.ts` (+ execution routes, socket namespace)
+**Progress:** 20% | Next: sandboxService.ts rewrite (eliminates TS2307/7006 + bugs)
 
-**7. Tests (100% coverage)**
-- `src/__tests__/executionService.test.ts` (unit)
-- `src/__tests__/sandbox.test.ts` (docker mock)
-- `src/__tests__/execution.integration.test.ts` (Supertest + docker)
-
-## Dependent Files
-- Update `src/server.ts`, `src/types/index.ts`, `package.json` (+dockerode @types/dockerode)
-- `src/services/sessionService.ts` (+ getSnapshot)
-
-## Follow-up Steps
-1. Install deps (`dockerode`)
-2. Build/test sandbox
-3. `npm test` (full coverage)
-4. Docker compose for prod
-
-**Confirm plan before implementation?**
+Updated: 2024

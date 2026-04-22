@@ -1,29 +1,33 @@
+import mongoose from 'mongoose';
+import type { ObjectId } from 'mongoose';
 import Session from '../models/Session';
-import User from '../models/User';
 import { generateToken } from '../utils/crypto';
 import { sendSessionInviteEmail } from './emailService';
 import { SessionRole, ISession } from '../types';
 
-const INVITE_EXPIRY = 24 * 60 * 60 * 1000; // 24h
-const IDLE_TIMEOUT = 30 * 60 * 1000; // 30min
+const INVITE_EXPIRY = 24 * 60 * 60 * 1000;
+const SAVE_DEBOUNCE = 3000;
 
-export const createSession = async (title: string, ownerId: string): Promise<any> => {
+const debounceTimeouts = new Map<string, NodeJS.Timeout>();
+const docCache = new Map<string, any>();
+
+export const createSession = async (title: string, ownerId: string) => {
   const session = await Session.create({
     title,
     ownerId,
-    members: [{ userId: ownerId, role: 'owner' as SessionRole }],
+    members: [{ userId: ownerId, role: 'owner' as SessionRole }]
   });
   return session;
 };
 
-export const getUserSessions = async (userId: string): Promise<ISession[]> => {
+export const getUserSessions = async (userId: string): Promise<any[]> => {
   const sessions = await Session.find({
     'members.userId': userId,
   }).populate('ownerId', 'username email').populate('members.userId', 'username avatar');
-  return sessions.filter(s => s.state === 'active') as any[];
+  return sessions.filter((s: any) => s.state === 'active') as any[];
 };
 
-export const getSessionById = async (sessionId: string, userId: string): Promise<ISession | null> => {
+export const getSessionById = async (sessionId: string, userId: string) => {
   const session = await Session.findOne({ _id: sessionId, 'members.userId': userId })
     .populate('ownerId', 'username email')
     .populate('members.userId', 'username avatar');
@@ -35,31 +39,30 @@ export const joinSession = async (sessionId: string, userId: string, inviteToken
   const session = await Session.findById(sessionId);
   if (!session || session.state === 'archived') return false;
 
-  // Check invite if provided
   if (inviteToken) {
-    const invite = session.inviteTokens.find(it => it.token === inviteToken && it.expiresAt > new Date());
-  if (!invite) return false;
-    session.inviteTokens = session.inviteTokens.filter((it: any) => it.token !== invite.token);
-  } else if (!session.members.find(m => m.userId.toString() === userId)) {
+    const invite = session.inviteTokens.find((it: any) => it.token === inviteToken && it.expiresAt > new Date());
+    if (!invite) return false;
+    // session.inviteTokens = session.inviteTokens.filter((it: any) => it.token !== invite.token);
+
+  } else if (!session.members.find((m: any) => m.userId.toString() === userId)) {
     return false;
   }
 
-  // Add/update member
-  const memberIndex = session.members.findIndex(m => m.userId.toString() === userId);
+  const memberIndex = session.members.findIndex((m: any) => m.userId.toString() === userId);
   if (memberIndex === -1) {
-    session.members.push({ userId, role: 'viewer' as SessionRole, joinedAt: new Date() });
+session.members.push({ userId: new mongoose.Types.ObjectId(userId), role: 'viewer' as SessionRole, joinedAt: new Date() });
   }
   await session.save();
   return true;
 };
 
 export const changeMemberRole = async (sessionId: string, ownerId: string, targetUserId: string, role: SessionRole): Promise<boolean> => {
-  if (role === 'owner') return false; // Can't change to owner
+  if (role === 'owner') return false;
 
   const session = await Session.findOne({ _id: sessionId, ownerId });
   if (!session) return false;
 
-  const member = session.members.find(m => m.userId.toString() === targetUserId);
+  const member = session.members.find((m: any) => m.userId.toString() === targetUserId);
   if (!member) return false;
 
   member.role = role;
@@ -81,7 +84,7 @@ export const generateInviteToken = async (sessionId: string, senderId: string): 
   if (!session) throw new Error('Session not found');
 
   const { raw } = generateToken();
-  session.inviteTokens.push({
+  session.inviteTokens!.push({
     token: raw,
     expiresAt: new Date(Date.now() + INVITE_EXPIRY),
   });
@@ -94,27 +97,24 @@ export const sendSessionInvite = async (sessionId: string, email: string, sender
   await sendSessionInviteEmail(email, token, sessionId);
 };
 
-// Yjs persistence (CRDT)
-import * as Y from 'yjs';
-
-let docCache: Map<string, Y.Doc> = new Map();
-const SAVE_DEBOUNCE = 3000; // 3s
-
-export const getYDoc = async (sessionId: string): Promise<Y.Doc> => {
+// Yjs persistence
+export const getYDoc = async (sessionId: string) => {
   let doc = docCache.get(sessionId);
   if (!doc) {
+    const yjs = await import('yjs');
     const session = await Session.findById(sessionId);
-    doc = new Y.Doc();
+    doc = new yjs.Doc();
     if (session?.docState) {
-      Y.applyUpdate(doc, session.docState);
+      yjs.applyUpdate(doc, new Uint8Array(session.docState));
     }
     docCache.set(sessionId, doc);
   }
   return doc;
 };
 
-export const saveYDoc = async (sessionId: string, doc: Y.Doc): Promise<void> => {
-  const update = Y.encodeStateAsUpdate(doc);
+export const saveYDoc = async (sessionId: string, doc: any): Promise<void> => {
+  const yjs = await import('yjs');
+  const update = yjs.encodeStateAsUpdate(doc);
   const session = await Session.findById(sessionId);
   if (session) {
     session.docState = Buffer.from(update);
@@ -122,13 +122,22 @@ export const saveYDoc = async (sessionId: string, doc: Y.Doc): Promise<void> => 
   }
 };
 
-// Debounced save
-export const debounceSave = (sessionId: string, doc: Y.Doc): void => {
-  const timeout = setTimeout(() => saveYDoc(sessionId, doc), SAVE_DEBOUNCE);
-  // Clear previous timeout if called again
+export const debounceSave = (sessionId: string, doc: any): void => {
+  if (debounceTimeouts.has(sessionId)) {
+    clearTimeout(debounceTimeouts.get(sessionId));
+  }
+  const timeout = setTimeout(async () => {
+    await saveYDoc(sessionId, doc);
+    debounceTimeouts.delete(sessionId);
+  }, SAVE_DEBOUNCE);
+  debounceTimeouts.set(sessionId, timeout);
 };
 
 export const cleanupSessionDoc = async (sessionId: string): Promise<void> => {
+  debounceTimeouts.delete(sessionId);
   docCache.delete(sessionId);
-};
+};   
+
+
+
 

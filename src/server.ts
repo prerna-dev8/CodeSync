@@ -30,8 +30,9 @@ app.get("/api/auth/google", authController.googleAuth);
 app.get("/api/auth/google/callback", authController.googleCallback);
 
 // Session routes
-app.use("/api/sessions", require('./routes/session'));
-app.use("/api/execution", require('./routes/execution'));
+app.use("/api/sessions", require('./routes/session').router);
+app.use("/api/execution", require('./routes/execution').router);
+
 
 
 app.use(errorHandler);

@@ -9,5 +9,5 @@ router.post('/:sessionId/stop/:executionId', protect as any, executionController
 router.get('/:sessionId/executions', protect as any, executionController.getSessionExecutions);
 router.get('/:sessionId/active', protect, executionController.getActiveExecution);
 
-export default router;
+export { router };
 

@@ -1,9 +1,12 @@
 import { v4 as uuidv4 } from 'uuid';
+import Docker from 'dockerode';
 import Execution from '../models/Execution';
 import Session from '../models/Session';
-import { Language, ExecutionState, IExecution, ISession } from '../types';
+import { Language, ExecutionState, IExecution } from '../types';
 import { executeInSandbox } from './sandboxService';
-import User from '../models/User';
+import type { SandboxResult } from '../types';
+
+const docker = new Docker();
 
 interface ActiveExecution {
   executionId: string;
@@ -11,7 +14,7 @@ interface ActiveExecution {
   timeout: NodeJS.Timeout;
 }
 
-const activeExecutions = new Map<string, ActiveExecution>(); // sessionId → execution
+const activeExecutions = new Map<string, ActiveExecution>();
 
 export async function runExecution(
   sessionId: string,
@@ -21,21 +24,18 @@ export async function runExecution(
   stdin: string = '',
   userId: string
 ): Promise<IExecution> {
-  // 1. Check single execution rule
   if (activeExecutions.has(sessionId)) {
     throw new Error('Only one execution allowed per session');
   }
 
-  // 2. Validate auth/role
-  const session = await Session.findById(sessionId).populate('members.userId', 'role');
+  const session = await Session.findById(sessionId).populate('members.userId');
   if (!session) throw new Error('Session not found');
-  
-  const member = session.members.find(m => m.userId._id.toString() === userId);
+
+  const member = (session.members as any[]).find((m: any) => m.userId._id.toString() === userId);
   if (!member || !['owner', 'editor'].includes(member.role)) {
     throw new Error('Owner/Editor only');
   }
 
-  // 3. Create execution record
   const executionId = uuidv4();
   const execution = new Execution({
     executionId,
@@ -44,35 +44,40 @@ export async function runExecution(
     language,
     codeSnapshot,
     stdin,
-    state: 'running'
+    state: 'running' as ExecutionState
   });
   await execution.save();
 
-  // 4. Snapshot captured - immutable execution starts
-  const activeExec = activeExecutions.get(sessionId)!;
-  activeExecutions.set(sessionId, {
+  const timeoutId = setTimeout(() => stopExecution(sessionId, executionId), 10000);
+  const activeExec: ActiveExecution = {
     executionId,
-    containerId: 'temp', // Set after sandbox
-    timeout: setTimeout(() => stopExecution(sessionId, executionId), 11000)
-  });
+    containerId: '',
+    timeout: timeoutId
+  };
+  activeExecutions.set(sessionId, activeExec);
 
-  // 5. Execute in sandbox
+let sandboxResult: SandboxResult | null = null;
   try {
-    const result = await executeInSandbox(language, codeSnapshot, stdin);
-    
-    execution.stdout = result.stdout;
-    execution.stderr = result.stderr;
-    execution.exitCode = result.exitCode;
-    execution.executionTimeMs = result.executionTimeMs;
-    execution.state = result.executionTimeMs > 10000 ? 'timeout' : 'completed';
+    sandboxResult = await executeInSandbox(language, codeSnapshot, stdin);
+    if (sandboxResult !== null) {
+      activeExec.containerId = sandboxResult.containerId;
+    }
+
   } catch (error: any) {
     execution.stderr = error.message;
     execution.exitCode = 1;
-    execution.state = 'failed';
+    execution.state = 'failed' as ExecutionState;
   } finally {
-    // Cleanup
-    clearTimeout(activeExec.timeout);
+    clearTimeout(timeoutId);
     activeExecutions.delete(sessionId);
+  }
+
+  if (sandboxResult !== null) {
+    execution.stdout = sandboxResult.stdout;
+    execution.stderr = sandboxResult.stderr || execution.stderr || '';
+    execution.exitCode = sandboxResult.exitCode;
+    execution.executionTimeMs = sandboxResult.executionTimeMs;
+    execution.state = sandboxResult.executionTimeMs > 9000 ? 'timeout' as ExecutionState : 'completed' as ExecutionState;
     await execution.save();
   }
 
@@ -83,15 +88,21 @@ export async function stopExecution(sessionId: string, executionId: string): Pro
   const activeExec = activeExecutions.get(sessionId);
   if (!activeExec) return;
 
-  // Kill container (sandboxService handles)
-  // For now, simulate
+  if (activeExec.containerId) {
+    try {
+      const container = docker.getContainer(activeExec.containerId);
+      await container.kill();
+    } catch (error) {
+      console.warn('Container kill failed:', error);
+    }
+  }
+
   clearTimeout(activeExec.timeout);
   activeExecutions.delete(sessionId);
 
-  const execution = await Execution.findOneAndUpdate(
+  await Execution.findOneAndUpdate(
     { executionId, sessionId },
-    { state: 'stopped' },
-    { new: true }
+    { state: 'stopped' as ExecutionState }
   );
 }
 

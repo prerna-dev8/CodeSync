@@ -1,25 +1,39 @@
-// src/sockets/collaboration.ts - Yjs + Socket.io real-time
 import { Server, Socket } from 'socket.io';
-import * as Y from 'yjs';
-import { WebsocketProvider } from 'y-websocket';
-import { getYDoc, saveYDoc, debounceSave, getSessionById } from '../services/sessionService';
 import Session from '../models/Session';
-import User from '../models/User';
-import { SocketData, SessionRole } from '../types';
+import UserDoc from '../models/User';
+import { getYDoc, debounceSave, getSessionById } from '../services/sessionService';
+
+type User = typeof UserDoc;
+
+interface WebsocketProvider {
+  doc: any;
+  destroy(): void;
+}
+
+interface ExtendedSocketData {
+  userId: string;
+  username: string;
+  sessionId: string;
+  role: string;
+  color?: string;
+}
 
 const providers: Map<string, WebsocketProvider> = new Map();
 const userColors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24', '#f0932b', '#eb4d4b', '#6c5ce7', '#a29bfe'];
 
-export const initCollaboration = (io: Server) => {
+export const initCollaboration = async (io: Server) => {
+  const Y = await import('yjs');
+
   io.on('connection', async (socket: Socket) => {
-    const data = socket.data as SocketData;
+    const data = socket.data as ExtendedSocketData;
     if (!data.userId) {
       socket.disconnect();
       return;
     }
 
     // Get user info
-    const user = await User.findById(data.userId).select('username avatar');
+    const user = await UserDoc.findById(data.userId).select('username avatar') as any;
+
     data.username = user?.username || 'Anonymous';
     
     socket.on('join-session', async (sessionId: string) => {
@@ -31,18 +45,19 @@ export const initCollaboration = (io: Server) => {
       }
 
       // Role/permission check
-      const member = session.members.find(m => m.userId.toString() === data.userId);
+      const member = session.members.find((m: any) => m.userId.toString() === data.userId);
       data.role = member?.role || 'viewer';
       data.sessionId = sessionId;
       
-      // Yjs WebSocket provider
       const doc = await getYDoc(sessionId);
-      const provider = new WebsocketProvider('ws://localhost:5000', `session-${sessionId}`, doc, { socket });
       
-      providers.set(`${socket.id}-${sessionId}`, provider);
+      // Custom Yjs sync via Socket.io rooms (no external WS dependency)
+      const providerKey = `${socket.id}-${sessionId}`;
+      providers.set(providerKey, { doc, destroy: () => {} });
       
-      // Presence
       const color = userColors[Math.floor(Math.random() * userColors.length)];
+      data.color = color;
+      
       const presence = {
         userId: data.userId,
         username: data.username,
@@ -63,10 +78,9 @@ export const initCollaboration = (io: Server) => {
       console.log(`${data.username} joined session ${sessionId} as ${data.role}`);
     });
 
-    socket.on('cursor-update', (cursor: any) => {
+    socket.on('cursor-update', async (cursor: any) => {
       if (!data.sessionId) return;
       
-      // Role check - viewers can send cursors
       const cursorData = {
         ...cursor,
         userId: data.userId,
@@ -76,22 +90,22 @@ export const initCollaboration = (io: Server) => {
       
       socket.to(`session-${data.sessionId}`).emit('cursor-update', cursorData);
       
-      // Persist cursor
       const session = await Session.findById(data.sessionId);
-      if (session) {
-        if (!session.cursors) session.cursors = {};
-        session.cursors[data.userId] = cursorData;
-        session.save();
+      if (session && session.cursors) {
+        (session.cursors as any).set(data.userId, cursorData);
+        await session.save();
       }
     });
 
     socket.on('code-change', (update: Uint8Array) => {
-      if (!data.sessionId || data.role === 'viewer') return; // Block viewers
+      if (!data.sessionId || data.role === 'viewer') return;
       
-      const provider = providers.get(`${socket.id}-${data.sessionId}`);
+      const providerKey = `${socket.id}-${data.sessionId}`;
+      const provider = providers.get(providerKey);
+      
       if (provider && provider.doc) {
-        Y.applyUpdate(provider.doc, new Uint8Array(update));
-        debounceSave(data.sessionId, provider.doc);
+        Y.applyUpdate(provider.doc, update);
+        debounceSave(data.sessionId!, provider.doc);
         socket.to(`session-${data.sessionId}`).emit('yjs-update', update);
       }
     });
@@ -99,10 +113,11 @@ export const initCollaboration = (io: Server) => {
     socket.on('disconnect', () => {
       if (data.sessionId) {
         socket.to(`session-${data.sessionId}`).emit('user-left', data.userId);
-        const provider = providers.get(`${socket.id}-${data.sessionId}`);
+        const providerKey = `${socket.id}-${data.sessionId}`;
+        const provider = providers.get(providerKey);
         if (provider) {
           provider.destroy();
-          providers.delete(`${socket.id}-${data.sessionId}`);
+          providers.delete(providerKey);
         }
       }
     });

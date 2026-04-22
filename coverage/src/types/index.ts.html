@@ -168,7 +168,29 @@
 <a name='L103'></a><a href='#L103'>103</a>
 <a name='L104'></a><a href='#L104'>104</a>
 <a name='L105'></a><a href='#L105'>105</a>
-<a name='L106'></a><a href='#L106'>106</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L106'></a><a href='#L106'>106</a>
+<a name='L107'></a><a href='#L107'>107</a>
+<a name='L108'></a><a href='#L108'>108</a>
+<a name='L109'></a><a href='#L109'>109</a>
+<a name='L110'></a><a href='#L110'>110</a>
+<a name='L111'></a><a href='#L111'>111</a>
+<a name='L112'></a><a href='#L112'>112</a>
+<a name='L113'></a><a href='#L113'>113</a>
+<a name='L114'></a><a href='#L114'>114</a>
+<a name='L115'></a><a href='#L115'>115</a>
+<a name='L116'></a><a href='#L116'>116</a>
+<a name='L117'></a><a href='#L117'>117</a>
+<a name='L118'></a><a href='#L118'>118</a>
+<a name='L119'></a><a href='#L119'>119</a>
+<a name='L120'></a><a href='#L120'>120</a>
+<a name='L121'></a><a href='#L121'>121</a>
+<a name='L122'></a><a href='#L122'>122</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -273,9 +295,18 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import { Request } from "express";
 import { Document } from "mongoose";
-// import * as Y from 'yjs';
 &nbsp;
 export interface IUser extends Document {
   username: string;
@@ -291,16 +322,23 @@ export interface IUser extends Document {
   comparePassword(plain: string): Promise&lt;boolean&gt;;
 }
 &nbsp;
-export interface IRefreshToken extends Document {
+export interface IRefreshTokenDoc extends Document {
   userId: string;
   token: string;
   expiresAt: Date;
   createdAt: Date;
   revoked: boolean;
 }
+export type IRefreshToken = IRefreshTokenDoc;
 &nbsp;
 export interface AuthRequest extends Request {
-  user?: IUser;
+  user?: {
+    _id: any;
+    username: string;
+    email: string;
+    avatar?: string;
+    isVerified: boolean;
+  };
 }
 &nbsp;
 export interface JwtPayload {
@@ -326,18 +364,18 @@ export interface ISessionInvite {
 }
 &nbsp;
 export interface ISessionPresence {
-  userId: string;
-  username: string;
-  color: string;
-  isActive: boolean;
+  userId?: string;
+  username?: string;
+  color?: string;
+  isActive?: boolean;
 }
 &nbsp;
 export interface ISessionCursor {
   userId: string;
-  username: string;
-  color: string;
-  position: { line: number; ch: number };
-  selection?: { anchor: number; head: number };
+  username?: string;
+  color?: string;
+  position?: { line?: number; ch?: number };
+  selection?: { anchor?: number; head?: number };
 }
 &nbsp;
 export interface ISession {
@@ -349,8 +387,8 @@ export interface ISession {
   idleTimeout?: Date;
   maxMembers?: number;
   docState?: Buffer;
-  cursors: Record&lt;string, ISessionCursor&gt;;
-  presence: Record&lt;string, ISessionPresence&gt;;
+  cursors?: Record&lt;string, ISessionCursor&gt; | Map&lt;string, ISessionCursor&gt;;
+  presence?: Record&lt;string, ISessionPresence&gt; | Map&lt;string, ISessionPresence&gt;;
 }
 &nbsp;
 export interface SocketData {
@@ -358,6 +396,7 @@ export interface SocketData {
   username: string;
   role: SessionRole;
   sessionId: string;
+  color?: string;
 }
 &nbsp;
 // ========== NEW EXECUTION TYPES ==========
@@ -378,6 +417,15 @@ export interface IExecution extends Document {
   state: ExecutionState;
   createdAt: Date;
 }
+&nbsp;
+export interface SandboxResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  executionTimeMs: number;
+  containerId: string;
+}
+&nbsp;
 &nbsp;</pre></td></tr></table></pre>
 
                 <div class='push'></div><!-- for sticky footer -->
@@ -385,7 +433,7 @@ export interface IExecution extends Document {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-04-20T05:06:41.247Z
+                at 2026-04-20T17:50:42.440Z
             </div>
         <script src="../../prettify.js"></script>
         <script>
