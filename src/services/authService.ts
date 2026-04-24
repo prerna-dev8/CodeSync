@@ -26,14 +26,14 @@ export const register = async (body: {
     username,
     email,
     password,
-    isVerified: false,
-    verificationToken: hashed,
-    verificationTokenExpiry: new Date(Date.now() + ONE_DAY_MS),
+    isVerified: true, // temporarily skip email verification
+    // verificationToken: hashed,
+    // verificationTokenExpiry: new Date(Date.now() + ONE_DAY_MS),
   });
 
-  await sendVerificationEmail(email, raw);
+  // await sendVerificationEmail(email, raw);
 
-  return { message: "Registration successful. Check your email to verify your account." };
+  return { message: "Registration successful. You can now log in." };
 };
 
 // ── Verify Email ──────────────────────────────────────────────────────────────
@@ -68,7 +68,7 @@ export const resendVerification = async (email: string): Promise<{ message: stri
   user.verificationTokenExpiry = new Date(Date.now() + ONE_DAY_MS);
   await user.save();
 
-  await sendVerificationEmail(email, raw);
+  // await sendVerificationEmail(email, raw);
   return { message: "Verification email resent." };
 };
 
@@ -108,7 +108,7 @@ export const forgotPassword = async (email: string): Promise<{ message: string }
   user.passwordResetTokenExpiry = new Date(Date.now() + ONE_HOUR_MS);
   await user.save();
 
-  await sendPasswordResetEmail(email, raw);
+  // await sendPasswordResetEmail(email, raw);
   return { message: "If that email exists, a reset link has been sent." };
 };
 

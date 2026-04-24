@@ -1,13 +1,10 @@
 {
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "Attach to Nodemon",
-      "type": "node",
-      "request": "attach",
-      "port": 9229,
-      "restart": true,
-      "protocol": "inspector"
-    }
-  ]
+  "type": "node",
+  "request": "attach",
+  "name": "Attach to Docker",
+  "port": 9229,
+  "address": "localhost",
+  "localRoot": "${workspaceFolder}/src",
+  "remoteRoot": "/app/src",
+  "restart": true
 }
