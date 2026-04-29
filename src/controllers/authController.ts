@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import passport from "../config/passport";
 import * as authService from "../services/authService";
-import { signToken } from "../utils/jwt";
 import { AuthRequest, IUser } from "../types";
 
 export const register = async (req: Request, res: Response, next: NextFunction): Promise<void> => {

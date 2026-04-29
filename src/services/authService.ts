@@ -20,6 +20,10 @@ export const register = async (body: {
     throw appError("Email already in use", 409);
   }
 
+  if (await User.findOne({ username })) {
+    throw appError("Username already taken", 409);
+  }
+
   const { raw, hashed } = generateToken();
 
   await User.create({
