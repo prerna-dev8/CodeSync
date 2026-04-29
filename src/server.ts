@@ -12,10 +12,16 @@ import errorHandler from "./middleware/errorHandler";
 const app = express();
 const httpServer = http.createServer(app);
 const io = new Server(httpServer, {
-  cors: { origin: process.env.CLIENT_URL || "*" },
+  cors: { 
+    origin: true, // Dynamically reflects the incoming request's origin
+    credentials: true,
+  },
 });
 
-app.use(cors({ origin: process.env.CLIENT_URL || "*" }));
+app.use(cors({ 
+  origin: true, // Dynamically reflects the incoming request's origin
+  credentials: true,
+}));
 app.use(express.json());
 
 // Auth routes
