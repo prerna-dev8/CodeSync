@@ -25,6 +25,8 @@ app.get("/api/auth/google/callback", authController.googleCallback);
 // Session routes (protected with stateless JWT verification)
 app.post("/api/session", verifyAccessToken as RequestHandler, sessionController.createSession as RequestHandler);
 app.get("/api/session", verifyAccessToken as RequestHandler, sessionController.getUserSessions as RequestHandler);
+app.post("/api/session/invites/redeem", verifyAccessToken as RequestHandler, sessionController.redeemSessionInvite as RequestHandler);
+app.post("/api/session/:sessionId/invites", verifyAccessToken as RequestHandler, sessionController.createSessionInvites as RequestHandler);
 app.get("/api/session/:sessionId", verifyAccessToken as RequestHandler, sessionController.getSession as RequestHandler);
 app.post("/api/session/:sessionId/archive", verifyAccessToken as RequestHandler, sessionController.archiveSessionHandler as RequestHandler);
 

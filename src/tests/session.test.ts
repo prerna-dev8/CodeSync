@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import app from "../app";
 import { signToken } from "../utils/jwt";
 import Session from "../models/Session";
+import SessionInvite from "../models/SessionInvite";
 
 describe("Session Management API", () => {
   let token: string;
@@ -20,10 +21,12 @@ describe("Session Management API", () => {
 
   afterAll(async () => {
     await Session.deleteMany({});
+    await SessionInvite.deleteMany({});
   });
 
   beforeEach(async () => {
     await Session.deleteMany({});
+    await SessionInvite.deleteMany({});
   });
 
   describe("POST /api/session", () => {
@@ -236,6 +239,115 @@ describe("Session Management API", () => {
         .post("/api/session/notexist/archive")
         .set("Authorization", `Bearer ${token}`);
       expect(res.status).toBe(403);
+    });
+  });
+
+  describe("POST /api/session/:sessionId/invites", () => {
+    beforeEach(async () => {
+      const userObjectId = new mongoose.Types.ObjectId(userId);
+      await Session.create({
+        sessionId: "deadbeef01",
+        users: [{ userId: userObjectId, role: "owner" }],
+        state: "active",
+      });
+    });
+
+    it("should create unique invite codes with 24 hour expiry", async () => {
+      const res = await request(app)
+        .post("/api/session/deadbeef01/invites")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          invites: [
+            { email: "editor@example.com", role: "editor" },
+            { email: "viewer@example.com", role: "viewer" },
+          ],
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.message).toBe("Invites created");
+      expect(res.body.invites).toHaveLength(2);
+      expect(res.body.invites[0].code).toBeDefined();
+      expect(res.body.invites[0].code).toMatch(/^[0-9a-f]{10}$/);
+      expect(res.body.invites[0].code).not.toBe(res.body.invites[1].code);
+
+      const expiresAt = new Date(res.body.invites[0].expiresAt).getTime();
+      const expectedExpiry = Date.now() + 24 * 60 * 60 * 1000;
+      expect(Math.abs(expiresAt - expectedExpiry)).toBeLessThan(5000);
+    });
+
+    it("should reject invalid invite roles", async () => {
+      const res = await request(app)
+        .post("/api/session/deadbeef01/invites")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ invites: [{ email: "owner@example.com", role: "owner" }] });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe("Invite role must be editor or viewer");
+    });
+
+    it("should only allow the session owner to create invites", async () => {
+      const res = await request(app)
+        .post("/api/session/deadbeef01/invites")
+        .set("Authorization", `Bearer ${secondToken}`)
+        .send({ invites: [{ email: "viewer@example.com", role: "viewer" }] });
+
+      expect(res.status).toBe(403);
+      expect(res.body.message).toBe("Only session owner can create invites");
+    });
+  });
+
+  describe("POST /api/session/invites/redeem", () => {
+    beforeEach(async () => {
+      const userObjectId = new mongoose.Types.ObjectId(userId);
+      await Session.create({
+        sessionId: "deadbeef01",
+        users: [{ userId: userObjectId, role: "owner" }],
+        state: "active",
+      });
+    });
+
+    it("should accept a valid invite code and add user with invite role", async () => {
+      await SessionInvite.create({
+        sessionId: "deadbeef01",
+        email: "editor@example.com",
+        role: "editor",
+        code: "invite-code-1",
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        createdBy: new mongoose.Types.ObjectId(userId),
+      });
+
+      const res = await request(app)
+        .post("/api/session/invites/redeem")
+        .set("Authorization", `Bearer ${secondToken}`)
+        .send({ code: "invite-code-1" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.message).toBe("Invite code accepted");
+      expect(res.body.sessionId).toBe("deadbeef01");
+      expect(res.body.role).toBe("editor");
+
+      const session = await Session.findOne({ sessionId: "deadbeef01" });
+      const invitedUser = session?.users.find((u) => u.userId.toString() === secondUserId);
+      expect(invitedUser?.role).toBe("editor");
+    });
+
+    it("should reject expired invite codes", async () => {
+      await SessionInvite.create({
+        sessionId: "deadbeef01",
+        email: "viewer@example.com",
+        role: "viewer",
+        code: "expired-code",
+        expiresAt: new Date(Date.now() - 1000),
+        createdBy: new mongoose.Types.ObjectId(userId),
+      });
+
+      const res = await request(app)
+        .post("/api/session/invites/redeem")
+        .set("Authorization", `Bearer ${secondToken}`)
+        .send({ code: "expired-code" });
+
+      expect(res.status).toBe(404);
+      expect(res.body.message).toBe("Invite code not found or expired");
     });
   });
 });
