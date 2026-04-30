@@ -13,25 +13,6 @@ const io = new Server(httpServer, {
   },
 });
 
-app.use(cors({ 
-  origin: true, // Dynamically reflects the incoming request's origin
-  credentials: true,
-}));
-app.use(express.json());
-
-// Auth routes
-app.post("/api/auth/register", authController.register);
-app.get("/api/auth/verify-email", authController.verifyEmail);
-app.post("/api/auth/resend-verification", authController.resendVerification);
-app.post("/api/auth/login", authController.login);
-app.post("/api/auth/forgot-password", authController.forgotPassword);
-app.post("/api/auth/reset-password", authController.resetPassword);
-// app.get("/api/auth/me", protect, authController.me);
-app.get("/api/auth/google", authController.googleAuth);
-app.get("/api/auth/google/callback", authController.googleCallback);
-
-app.use(errorHandler);
-
 io.on("connection", (socket) => {
   console.log("Socket connected:", socket.id);
   socket.on("disconnect", () => console.log("Socket disconnected:", socket.id));
