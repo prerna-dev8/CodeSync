@@ -1,9 +1,13 @@
 
 import "dotenv/config";
+import express from "express";
+import cors from "cors";
 import http from "http";
 import { Server } from "socket.io";
 import connectDB from "./config/db";
 import app from "./app";
+import * as authController from "./controllers/authController";
+import errorHandler from "./middleware/errorHandler";
 
 const httpServer = http.createServer(app);
 const io = new Server(httpServer, {
