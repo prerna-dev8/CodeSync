@@ -6,10 +6,12 @@ import http from "http";
 import { Server } from "socket.io";
 import connectDB from "./config/db";
 import app from "./app";
-import * as authController from "./controllers/authController";
-import errorHandler from "./middleware/errorHandler";
+import { createSocketAuthMiddleware } from "./middleware/socketAuth";
+import { initializeSocketHandlers } from "./services/socketService";
 
 const httpServer = http.createServer(app);
+
+// Initialize Socket.IO with authentication middleware
 const io = new Server(httpServer, {
   cors: { 
     origin: true, // Dynamically reflects the incoming request's origin
@@ -17,10 +19,11 @@ const io = new Server(httpServer, {
   },
 });
 
-io.on("connection", (socket) => {
-  console.log("Socket connected:", socket.id);
-  socket.on("disconnect", () => console.log("Socket disconnected:", socket.id));
-});
+// Apply Socket.IO authentication middleware
+io.use(createSocketAuthMiddleware());
+
+// Initialize Socket event handlers
+initializeSocketHandlers(io);
 
 const PORT = process.env.PORT || 5000;
 

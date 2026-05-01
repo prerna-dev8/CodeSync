@@ -1,103 +1,165 @@
 import Y from "yjs";
-import { Server, Socket } from "socket.io";
+import { SessionRole, AwarenessState, CursorPosition, SelectionRange } from "../types";
 import Session from "../models/Session";
 
-// Session-based Yjs document storage (in-memory)
-// In production, use Redis or LevelDB for scaling
-const docs = new Map<string, Y.Doc>();
+/**
+ * Yjs Document Management Service
+ * 
+ * Maintains real-time collaborative document state using Yjs CRDT.
+ * All operations are session-isolated and in-memory.
+ * 
+ * CRITICAL RULES:
+ * - DO NOT store in database
+ * - DO NOT implement custom diff/merge (Yjs handles it)
+ * - Each session has isolated document state
+ */
 
-// Awareness storage per session (in-memory only)
-// DO NOT store in database
+// ============================================
+// In-Memory Storage
+// ============================================
+
+/** Yjs document storage: sessionId -> Y.Doc */
+const yDocs = new Map<string, Y.Doc>();
+
+/** Awareness storage: sessionId -> userId -> AwarenessState */
 const awarenessData = new Map<string, Map<string, AwarenessState>>();
 
-// Connected users tracking (sessionId -> userId -> socketId)
+/** Connected users tracking: sessionId -> userId -> socketId */
 const connectedUsers = new Map<string, Map<string, string>>();
 
-export interface AwarenessState {
-  userId: string;
-  displayName?: string;
-  role: "owner" | "editor" | "viewer";
-  cursor?: {
-    line: number;
-    column: number;
-  };
-  selection?: {
-    startLine: number;
-    startColumn: number;
-    endLine: number;
-    endColumn: number;
-  };
-  color: string;
-}
+// ============================================
+// Document Operations
+// ============================================
 
 /**
  * Get or create a Yjs document for a session
+ * If document doesn't exist, create new Y.Doc with empty state
  */
 export const getYDoc = (sessionId: string): Y.Doc => {
-  if (!docs.has(sessionId)) {
-    docs.set(sessionId, new Y.Doc());
+  let doc = yDocs.get(sessionId);
+  if (!doc) {
+    doc = new Y.Doc();
+    yDocs.set(sessionId, doc);
+    console.log(`[YjsService] Created new document for session ${sessionId}`);
   }
-  return docs.get(sessionId)!;
+  return doc;
 };
 
 /**
- * Get awareness data for a session
+ * Get Yjs document if exists, else return null
  */
-export const getAwarenessData = (
-  sessionId: string
-): Map<string, AwarenessState> | undefined => {
-  return awarenessData.get(sessionId);
+export const getYDocIfExists = (sessionId: string): Y.Doc | null => {
+  return yDocs.get(sessionId) || null;
 };
 
 /**
- * Update awareness for a specific user
+ * Get full document state as Uint8Array
+ * Used for sync protocol step 2
+ */
+export const getEncodedState = (sessionId: string): Uint8Array => {
+  const doc = getYDoc(sessionId);
+  return Y.encodeStateAsUpdate(doc);
+};
+
+/**
+ * Apply update from client to Yjs document
+ * Handles incremental changes
+ */
+export const applyUpdate = (sessionId: string, update: Uint8Array): void => {
+  const doc = getYDoc(sessionId);
+  Y.applyUpdate(doc, update);
+};
+
+/**
+ * Check if session has a document
+ */
+export const hasDocument = (sessionId: string): boolean => {
+  return yDocs.has(sessionId);
+};
+
+// ============================================
+// Awareness Operations
+// ============================================
+
+/**
+ * Initialize awareness for new session
+ */
+const initSessionAwareness = (sessionId: string): void => {
+  if (!awarenessData.has(sessionId)) {
+    awarenessData.set(sessionId, new Map());
+  }
+};
+
+/**
+ * Get awareness data for session
+ */
+export const getSessionAwareness = (
+  sessionId: string
+): Map<string, AwarenessState> | null => {
+  initSessionAwareness(sessionId);
+  return awarenessData.get(sessionId) || null;
+};
+
+/**
+ * Get all awareness states for a session (array format)
+ */
+export const getAwarenessArray = (sessionId: string): AwarenessState[] => {
+  const awareness = getSessionAwareness(sessionId);
+  if (!awareness) return [];
+  return Array.from(awareness.values());
+};
+
+/**
+ * Update awareness for specific user
+ * Handles partial updates (cursor, selection, etc.)
  */
 export const updateAwareness = (
   sessionId: string,
   userId: string,
   data: Partial<AwarenessState>
 ): void => {
-  let sessionAwareness = awarenessData.get(sessionId);
-  if (!sessionAwareness) {
-    sessionAwareness = new Map();
-    awarenessData.set(sessionId, sessionAwareness);
-  }
-
-  const existing = sessionAwareness.get(userId);
+  initSessionAwareness(sessionId);
+  const awareness = awarenessData.get(sessionId)!;
+  
+  const existing = awareness.get(userId);
   if (existing) {
-    sessionAwareness.set(userId, { ...existing, ...data });
+    // Merge with existing state
+    awareness.set(userId, { ...existing, ...data } as AwarenessState);
   } else {
-    sessionAwareness.set(userId, data as AwarenessState);
+    // Create new awareness entry
+    awareness.set(userId, data as AwarenessState);
   }
+};
+
+/**
+ * Get specific user's awareness state
+ */
+export const getUserAwareness = (
+  sessionId: string,
+  userId: string
+): AwarenessState | null => {
+  const awareness = awarenessData.get(sessionId);
+  return awareness?.get(userId) || null;
 };
 
 /**
  * Remove user from awareness
  */
 export const removeAwareness = (sessionId: string, userId: string): void => {
-  const sessionAwareness = awarenessData.get(sessionId);
-  if (sessionAwareness) {
-    sessionAwareness.delete(userId);
+  const awareness = awarenessData.get(sessionId);
+  if (awareness) {
+    awareness.delete(userId);
   }
-
   // Also remove from connected users
-  const sessionConnections = connectedUsers.get(sessionId);
-  if (sessionConnections) {
-    sessionConnections.delete(userId);
-  }
+  removeConnectedUser(sessionId, userId);
 };
 
-/**
- * Get connected users in a session
- */
-export const getConnectedUsers = (sessionId: string): string[] => {
-  const sessionConnections = connectedUsers.get(sessionId);
-  if (!sessionConnections) return [];
-  return Array.from(sessionConnections.keys());
-};
+// ============================================
+// Connected Users Management
+// ============================================
 
 /**
- * Add user to connected users tracking
+ * Track connected user (sessionId + userId -> socketId)
  */
 export const addConnectedUser = (
   sessionId: string,
@@ -113,33 +175,64 @@ export const addConnectedUser = (
 };
 
 /**
- * Generate deterministic color from userId
+ * Get socket ID for user in session
  */
-export const generateUserColor = (userId: string, sessionId: string): string => {
-  const colors = [
-    "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4",
-    "#FFEAA7", "#DDA0DD", "#98D8C8", "#F7DC6F",
-    "#BB8FCE", "#85C1E9", "#F8B500", "#00CED1",
-  ];
-
-  // Generate consistent index from userId + sessionId
-  let hash = 0;
-  const combined = userId + sessionId;
-  for (let i = 0; i < combined.length; i++) {
-    hash = combined.charCodeAt(i) + ((hash << 5) - hash);
-  }
-
-  return colors[Math.abs(hash) % colors.length];
+export const getUserSocketId = (
+  sessionId: string,
+  userId: string
+): string | null => {
+  const sessionConnections = connectedUsers.get(sessionId);
+  return sessionConnections?.get(userId) || null;
 };
 
 /**
- * Validate user role for a session
+ * Remove connected user
+ */
+export const removeConnectedUser = (
+  sessionId: string,
+  userId: string
+): void => {
+  const sessionConnections = connectedUsers.get(sessionId);
+  if (sessionConnections) {
+    sessionConnections.delete(userId);
+  }
+};
+
+/**
+ * Get all connected user IDs in session
+ */
+export const getConnectedUserIds = (sessionId: string): string[] => {
+  const sessionConnections = connectedUsers.get(sessionId);
+  if (!sessionConnections) return [];
+  return Array.from(sessionConnections.keys());
+};
+
+/**
+ * Check if user is connected to session
+ */
+export const isUserConnected = (
+  sessionId: string,
+  userId: string
+): boolean => {
+  return getConnectedUserIds(sessionId).includes(userId);
+};
+
+// ============================================
+// Role & Permission Helpers
+// ============================================
+
+/**
+ * Get user's role in a session from database
+ * Returns null if user is not a member or session doesn't exist
  */
 export const getUserRole = async (
   sessionId: string,
   userId: string
-): Promise<"owner" | "editor" | "viewer" | null> => {
-  const session = await Session.findOne({ sessionId, state: "active" });
+): Promise<SessionRole | null> => {
+  const session = await Session.findOne({
+    sessionId,
+    state: "active",
+  });
   if (!session) return null;
 
   const user = session.users.find(
@@ -149,220 +242,91 @@ export const getUserRole = async (
 };
 
 /**
- * Can user edit the document?
- * Strict enforcement: owner/editor can edit, viewer cannot
+ * Validate if role can edit (owner or editor only)
  */
-export const canEdit = (role: "owner" | "editor" | "viewer" | null): boolean => {
+export const canEdit = (role: SessionRole | null): boolean => {
   return role === "owner" || role === "editor";
 };
 
 /**
- * Clean up session resources
+ * Validate cursor position (must be non-negative)
+ */
+export const isValidCursorPosition = (
+  cursor: CursorPosition | undefined
+): boolean => {
+  if (!cursor) return true; // undefined is valid
+  return cursor.line >= 0 && cursor.column >= 0;
+};
+
+/**
+ * Validate selection range
+ */
+export const isValidSelection = (
+  selection: SelectionRange | undefined
+): boolean => {
+  if (!selection) return true;
+  const { startLine, startColumn, endLine, endColumn } = selection;
+  return (
+    startLine >= 0 &&
+    startColumn >= 0 &&
+    endLine >= 0 &&
+    endColumn >= 0
+  );
+};
+
+// ============================================
+// Color Generation
+// ============================================
+
+/**
+ * Predefined color palette for user avatars
+ */
+const COLOR_PALETTE = [
+  "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4",
+  "#FFEAA7", "#DDA0DD", "#98D8C8", "#F7DC6F",
+  "#BB8FCE", "#85C1E9", "#F8B500", "#00CED1",
+  "#FF69B4", "#32CD32", "#FFA500", "#6A5ACD",
+];
+
+/**
+ * Generate deterministic color from userId + sessionId
+ * Same user in same session always gets same color
+ */
+export const generateUserColor = (userId: string, sessionId: string): string => {
+  const combined = userId + sessionId;
+  let hash = 0;
+  for (let i = 0; i < combined.length; i++) {
+    hash = combined.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return COLOR_PALETTE[Math.abs(hash) % COLOR_PALETTE.length];
+};
+
+// ============================================
+// Session Cleanup
+// ============================================
+
+/**
+ * Clean up all resources for a session
+ * Call when session is archived or becomes inactive
  */
 export const cleanupSession = (sessionId: string): void => {
-  docs.delete(sessionId);
+  yDocs.delete(sessionId);
   awarenessData.delete(sessionId);
   connectedUsers.delete(sessionId);
+  console.log(`[YjsService] Cleaned up session ${sessionId}`);
 };
 
 /**
- * Initialize Socket.IO event handlers
+ * Get debug info for session (development only)
  */
-export const initializeSocketHandlers = (io: Server): void => {
-  // Authentication middleware for Socket.IO
-  io.use(async (socket, next) => {
-    try {
-      const token = socket.handshake.auth.token as string;
-      if (!token) {
-        return next(new Error("Authentication required"));
-      }
-
-      // Verify JWT (signature + expiry only, no DB lookup)
-      const decoded = verifyToken(token);
-      if (!decoded?.id) {
-        return next(new Error("Invalid token"));
-      }
-
-      // Attach userId to socket
-      (socket as any).userId = decoded.id;
-      next();
-    } catch (error) {
-      next(new Error("Invalid token"));
-    }
-  });
-
-  io.on("connection", (socket) => {
-    console.log("Socket connected:", socket.id, "User:", (socket as any).userId);
-
-    // Join session handler
-    socket.on("join-session", async (data: { sessionId: string }) => {
-      await handleJoinSession(io, socket, data);
-    });
-
-    // Awareness update handler (cursor, selection)
-    socket.on("awareness-update", (data: Partial<AwarenessState>) => {
-      handleAwarenessUpdate(io, socket, data);
-    });
-
-    // Yjs sync handler
-    socket.on("sync", (data: { sessionId: string }) => {
-      handleSync(io, socket, data);
-    });
-
-    // Handle disconnect
-    socket.on("disconnect", () => {
-      handleDisconnect(io, socket);
-    });
-  });
+export const getSessionDebugInfo = (sessionId: string): {
+  hasDoc: boolean;
+  connectedUsers: number;
+  awarenessSize: number;
+} => {
+  return {
+    hasDoc: yDocs.has(sessionId),
+    connectedUsers: connectedUsers.get(sessionId)?.size || 0,
+    awarenessSize: awarenessData.get(sessionId)?.size || 0,
+  };
 };
-
-/**
- * Handle join session event
- */
-const handleJoinSession = async (
-  io: Server,
-  socket: Socket,
-  data: { sessionId: string }
-): Promise<void> => {
-  const { sessionId } = data;
-  const userId = (socket as any).userId;
-
-  try {
-    // Validate session exists
-    const session = await Session.findOne({ sessionId, state: "active" });
-    if (!session) {
-      socket.emit("error", { message: "Session not found" });
-      return;
-    }
-
-    // Validate user is a member
-    const userRole = await getUserRole(sessionId, userId);
-    if (!userRole) {
-      socket.emit("error", { message: "Not a member of this session" });
-      return;
-    }
-
-    // Join socket room
-    socket.join(sessionId);
-
-    // Track connected user
-    addConnectedUser(sessionId, userId, socket.id);
-
-    // Initialize awareness if not exists
-    const existingAwareness = awarenessData.get(sessionId)?.get(userId);
-    if (!existingAwareness) {
-      updateAwareness(sessionId, userId, {
-        userId,
-        role: userRole,
-        color: generateUserColor(userId, sessionId),
-      });
-    }
-
-    // Broadcast user joined
-    io.to(sessionId).emit("user-joined", {
-      userId,
-      role: userRole,
-      sessionId,
-    });
-
-    // Send current awareness state to the user
-    const awareness = getAwarenessData(sessionId);
-    socket.emit("awareness-state", Array.from(awareness?.values() || []));
-
-    // Send Yjs document state
-    const ydoc = getYDoc(sessionId);
-    const state = Y.encodeStateAsUpdate(ydoc);
-    socket.emit("sync", { state: Array.from(state) });
-
-    console.log(`User ${userId} joined session ${sessionId} as ${userRole}`);
-  } catch (error) {
-    console.error("Join session error:", error);
-    socket.emit("error", { message: "Failed to join session" });
-  }
-};
-
-/**
- * Handle awareness update (cursor, selection)
- */
-const handleAwarenessUpdate = (
-  io: Server,
-  socket: Socket,
-  data: Partial<AwarenessState>
-): void => {
-  const userId = (socket as any).userId;
-  const sessionId = Array.from(socket.rooms).find(
-    (r) => r !== socket.id && r.startsWith("session:")
-  );
-
-  if (!sessionId) {
-    return; // User not in a session
-  }
-
-  // Get user's role
-  const awareness = awarenessData.get(sessionId);
-  const userState = awareness?.get(userId);
-
-  if (!userState) return;
-
-  // Strict role enforcement: viewers cannot modify cursor/selection
-  if (!canEdit(userState.role)) {
-    return; // Ignore updates from viewers
-  }
-
-  // Validate cursor position
-  if (data.cursor) {
-    if (data.cursor.line < 0 || data.cursor.column < 0) {
-      return; // Reject invalid positions
-    }
-  }
-
-  // Update awareness
-  updateAwareness(sessionId, userId, data);
-
-  // Broadcast to session (excluding sender)
-  socket.to(sessionId).emit("awareness-update", {
-    userId,
-    ...data,
-  });
-};
-
-/**
- * Handle sync request
- */
-const handleSync = (
-  io: Server,
-  socket: Socket,
-  data: { sessionId: string }
-): void => {
-  const { sessionId } = data;
-  const ydoc = getYDoc(sessionId);
-  const state = Y.encodeStateAsUpdate(ydoc);
-
-  // Send full state to requesting client
-  socket.emit("sync", { state: Array.from(state) });
-};
-
-/**
- * Handle disconnect
- */
-const handleDisconnect = (io: Server, socket: Socket): void => {
-  const userId = (socket as any).userId;
-  const sessionId = Array.from(socket.rooms).find(
-    (r) => r !== socket.id
-  );
-
-  if (sessionId && userId) {
-    // Remove from awareness
-    removeAwareness(sessionId, userId);
-
-    // Broadcast user left
-    io.to(sessionId).emit("user-left", { userId });
-
-    console.log(`User ${userId} left session ${sessionId}`);
-  }
-
-  console.log("Socket disconnected:", socket.id);
-};
-
-// Import verifyToken from jwt utils
-import { verifyToken } from "../utils/jwt";
