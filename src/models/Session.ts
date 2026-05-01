@@ -57,12 +57,11 @@ export async function addUserToSession(
   userId: mongoose.Types.ObjectId,
   role: SessionRole
 ): Promise<mongoose.Document | null> {
-  // Use findOneAndUpdate with upsert: false and $addToSet to prevent duplicates
-  // This ensures atomic, idempotent operation
+  // Only add the user when they are not already present, regardless of role.
   return mongoose.model<ISession>("Session").findOneAndUpdate(
-    { sessionId },
+    { sessionId, "users.userId": { $ne: userId } },
     {
-      $addToSet: {
+      $push: {
         users: { userId, role },
       },
     },
